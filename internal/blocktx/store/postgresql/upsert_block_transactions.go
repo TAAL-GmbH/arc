@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/lib/pq"
 	"go.opentelemetry.io/otel/attribute"
 
@@ -27,6 +28,8 @@ func (p *PostgreSQL) UpsertBlockTransactions(ctx context.Context, blockID uint64
 		merkleTreeIndexes[pos] = tx.MerkleTreeIndex
 	}
 
+	var copyRows [][]any
+
 	qBulkUpsert := `
 		INSERT INTO blocktx.transactions (hash)
 			SELECT UNNEST($1::BYTEA[])
@@ -34,14 +37,15 @@ func (p *PostgreSQL) UpsertBlockTransactions(ctx context.Context, blockID uint64
 			DO UPDATE SET hash = EXCLUDED.hash
 		RETURNING id, is_registered`
 
+	_, spanTxs := tracing.StartTracing(ctx, "UpsertBlockTransactions_transactions", p.tracingEnabled, append(p.tracingAttributes, attribute.Int("updates", len(txsWithMerklePaths)))...)
 	rows, err := p.db.QueryContext(ctx, qBulkUpsert, pq.Array(txHashes))
 	if err != nil {
 		return errors.Join(store.ErrFailedToUpsertTransactions, err)
 	}
+	tracing.EndTracing(spanTxs, nil)
 
 	counter := 0
 	txIDs := make([]uint64, len(txsWithMerklePaths))
-	merklePaths := make([]string, len(txsWithMerklePaths))
 	for rows.Next() {
 		var txID uint64
 		var isRegistered bool
@@ -53,11 +57,12 @@ func (p *PostgreSQL) UpsertBlockTransactions(ctx context.Context, blockID uint64
 
 		txIDs[counter] = txID
 
+		mp := ""
 		if isRegistered {
-			merklePaths[counter] = txsWithMerklePaths[counter].MerklePath
-		} else {
-			merklePaths[counter] = ""
+			mp = txsWithMerklePaths[counter].MerklePath
 		}
+
+		copyRows = append(copyRows, []any{blockID, txID, mp, merkleTreeIndexes[counter]})
 
 		counter++
 	}
@@ -66,20 +71,24 @@ func (p *PostgreSQL) UpsertBlockTransactions(ctx context.Context, blockID uint64
 		return errors.Join(store.ErrMismatchedTxIDsAndMerklePathLength, err)
 	}
 
-	const qMapInsert = `
-		INSERT INTO blocktx.block_transactions_map (
-			 blockid
-			,txid
-			,merkle_path
-			,merkle_tree_index
-			)
-		SELECT * FROM UNNEST($1::INT[], $2::INT[], $3::TEXT[], $4::INT[])
-		ON CONFLICT DO NOTHING
-		`
-	_, err = p.db.ExecContext(ctx, qMapInsert, pq.Array(blockIDs), pq.Array(txIDs), pq.Array(merklePaths), pq.Array(merkleTreeIndexes))
+	conn, err := pgx.Connect(ctx, p.dbInfo)
+	if err != nil {
+		return err
+	}
+	defer conn.Close(ctx)
+
+	_, spanTxsMap := tracing.StartTracing(ctx, "UpsertBlockTransactions_transactions_map", p.tracingEnabled, append(p.tracingAttributes, attribute.Int("updates", len(txsWithMerklePaths)))...)
+
+	_, err = conn.CopyFrom(
+		context.Background(),
+		pgx.Identifier{"blocktx", "block_transactions_map"},
+		[]string{"blockid", "txid", "merkle_path", "merkle_tree_index"},
+		pgx.CopyFromRows(copyRows),
+	)
 	if err != nil {
 		return errors.Join(store.ErrFailedToUpsertBlockTransactionsMap, err)
 	}
+	tracing.EndTracing(spanTxsMap, nil)
 
 	return nil
 }

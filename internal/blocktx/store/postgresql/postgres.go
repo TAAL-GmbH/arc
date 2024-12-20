@@ -26,6 +26,7 @@ type PostgreSQL struct {
 	maxPostgresBulkInsertRows int
 	tracingEnabled            bool
 	tracingAttributes         []attribute.KeyValue
+	dbInfo                    string
 }
 
 func WithNow(nowFunc func() time.Time) func(*PostgreSQL) {
@@ -63,6 +64,7 @@ func New(dbInfo string, idleConns int, maxOpenConns int, opts ...func(postgreSQL
 		db:                        db,
 		now:                       time.Now,
 		maxPostgresBulkInsertRows: maxPostgresBulkInsertRows,
+		dbInfo:                    dbInfo,
 	}
 
 	for _, opt := range opts {
