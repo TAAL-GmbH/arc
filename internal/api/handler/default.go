@@ -265,7 +265,7 @@ func (m ArcDefaultHandler) postTransaction(ctx echo.Context, params api.POSTTran
 		}
 	}
 
-	txs, successes, fails, e := m.processTransactions(reqCtx, txHex, transactionOptions)
+	_, successes, fails, e := m.processTransactions(reqCtx, txHex, transactionOptions)
 	if e != nil {
 		if span != nil {
 			attr := e.GetSpanAttributes()
@@ -284,9 +284,6 @@ func (m ArcDefaultHandler) postTransaction(ctx echo.Context, params api.POSTTran
 		}
 		return PostResponse{e.Status, e}
 	}
-
-	sizingCtx := context.WithValue(reqCtx, ContextSizings, prepareSizingInfo(txs))
-	ctx.SetRequest(ctx.Request().WithContext(sizingCtx))
 
 	res := successes[0]
 
@@ -454,7 +451,7 @@ func (m ArcDefaultHandler) postTransactions(ctx echo.Context, params api.POSTTra
 		return PostResponse{int(api.StatusOK), responses}
 	}
 
-	txs, successes, fails, e := m.processTransactions(reqCtx, txsHex, transactionOptions)
+	_, successes, fails, e := m.processTransactions(reqCtx, txsHex, transactionOptions)
 	if e != nil {
 		if span != nil {
 			attr := e.GetSpanAttributes()
@@ -463,8 +460,6 @@ func (m ArcDefaultHandler) postTransactions(ctx echo.Context, params api.POSTTra
 		return PostResponse{e.Status, e}
 	}
 
-	sizingCtx := context.WithValue(reqCtx, ContextSizings, prepareSizingInfo(txs))
-	ctx.SetRequest(ctx.Request().WithContext(sizingCtx))
 	// we cannot really return any other status here
 	// each transaction in the slice will have the result of the transaction submission
 
@@ -846,42 +841,6 @@ func (ArcDefaultHandler) handleError(_ context.Context, transaction *sdkTx.Trans
 	}
 
 	return status, arcError
-}
-
-func prepareSizingInfo(txs []*sdkTx.Transaction) [][]uint64 {
-	sizingInfo := make([][]uint64, 0, len(txs))
-	for _, btTx := range txs {
-		normalBytes, dataBytes, feeAmount := getSizings(btTx)
-		sizingInfo = append(sizingInfo, []uint64{normalBytes, dataBytes, feeAmount})
-	}
-
-	return sizingInfo
-}
-
-func getSizings(tx *sdkTx.Transaction) (uint64, uint64, uint64) {
-	var feeAmount uint64
-
-	for _, in := range tx.Inputs {
-		feeAmount += *in.SourceTxSatoshis()
-	}
-
-	var dataBytes uint64
-	for _, out := range tx.Outputs {
-		if feeAmount >= out.Satoshis {
-			feeAmount -= out.Satoshis
-		} else {
-			feeAmount = 0
-		}
-
-		script := *out.LockingScript
-		if out.Satoshis == 0 && len(script) > 0 && (script[0] == 0x6a || (script[0] == 0x00 && script[1] == 0x6a)) {
-			dataBytes += uint64(len(script))
-		}
-	}
-
-	normalBytes := uint64(len(tx.Bytes())) - dataBytes
-
-	return normalBytes, dataBytes, feeAmount
 }
 
 // ContextKey type.
