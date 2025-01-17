@@ -28,7 +28,6 @@ import (
 	"github.com/bitcoin-sv/arc/internal/metamorph/store/postgresql"
 	"github.com/bitcoin-sv/arc/internal/p2p"
 	"github.com/bitcoin-sv/arc/internal/tracing"
-	"github.com/bitcoin-sv/arc/internal/version"
 )
 
 const (
