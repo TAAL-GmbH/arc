@@ -8,15 +8,11 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-
-	"github.com/ordishs/go-bitcoin"
 	"google.golang.org/grpc"
-
-	"github.com/bitcoin-sv/arc/internal/cache"
-	"github.com/bitcoin-sv/arc/internal/tracing"
 
 	"github.com/bitcoin-sv/arc/config"
 	"github.com/bitcoin-sv/arc/internal/blocktx/blocktx_api"
+	"github.com/bitcoin-sv/arc/internal/cache"
 	"github.com/bitcoin-sv/arc/internal/callbacker"
 	"github.com/bitcoin-sv/arc/internal/callbacker/callbacker_api"
 	"github.com/bitcoin-sv/arc/internal/grpc_opts"
@@ -28,8 +24,8 @@ import (
 	"github.com/bitcoin-sv/arc/internal/metamorph/metamorph_api"
 	"github.com/bitcoin-sv/arc/internal/metamorph/store"
 	"github.com/bitcoin-sv/arc/internal/metamorph/store/postgresql"
-
 	"github.com/bitcoin-sv/arc/internal/p2p"
+	"github.com/bitcoin-sv/arc/internal/tracing"
 	"github.com/bitcoin-sv/arc/internal/version"
 )
 
