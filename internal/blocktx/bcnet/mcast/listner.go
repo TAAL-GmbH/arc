@@ -6,13 +6,12 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/libsv/go-p2p/wire"
+
 	"github.com/bitcoin-sv/arc/internal/blocktx/bcnet"
 	"github.com/bitcoin-sv/arc/internal/blocktx/store"
 	"github.com/bitcoin-sv/arc/internal/multicast"
-	"github.com/libsv/go-p2p/wire"
 )
-
-var ErrUnableToCastWireMessage = errors.New("unable to cast wire.Message to blockchain.BlockMessage")
 
 var _ multicast.MessageHandlerI = (*Listner)(nil)
 
@@ -49,7 +48,7 @@ func (l *Listner) Disconnect() {
 }
 
 // OnReceive should be fire & forget
-func (l *Listner) OnReceive(msg wire.Message) {
+func (l *Listner) OnReceiveFromMcast(msg wire.Message) {
 	if msg.Command() == wire.CmdBlock {
 		blockMsg, ok := msg.(*bcnet.BlockMessage)
 		if !ok {
@@ -61,10 +60,13 @@ func (l *Listner) OnReceive(msg wire.Message) {
 		// lock block for the current instance to process
 		hash := blockMsg.Hash
 
-		processedBy, err := l.store.SetBlockProcessing(context.Background(), hash, l.hostname)
+		l.logger.Info("Received BLOCK msg from multicast group", slog.String("hash", hash.String()))
+		processedBy, err := l.store.SetBlockProcessing(context.Background(), hash, l.hostname, lockTime, maxBlocksInProgress)
 		if err != nil {
-			// block is already being processed by another blocktx instance
-			if errors.Is(err, store.ErrBlockProcessingDuplicateKey) {
+			if errors.Is(err, store.ErrBlockProcessingMaximumReached) {
+				l.logger.Debug("block processing maximum reached", slog.String("hash", hash.String()), slog.String("processed_by", processedBy))
+				return
+			} else if errors.Is(err, store.ErrBlockProcessingInProgress) {
 				l.logger.Debug("block processing already in progress", slog.String("hash", hash.String()), slog.String("processed_by", processedBy))
 				return
 			}
@@ -73,15 +75,12 @@ func (l *Listner) OnReceive(msg wire.Message) {
 			return
 		}
 
-		// p.startBlockProcessGuard(p.ctx, hash) // handle it somehow
-
 		l.receiveCh <- blockMsg
 	}
-
 	// ignore other messages
 }
 
 // OnSend should be fire & forget
-func (l *Listner) OnSend(_ wire.Message) {
+func (l *Listner) OnSendToMcast(_ wire.Message) {
 	// ignore
 }
